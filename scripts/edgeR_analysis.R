@@ -12,7 +12,8 @@
       library(stringi)
       library(purrr)
       library(ggrepel)
-      
+      library(matrixStats)
+
 
 
 # data --------------------------------------------------------------------
@@ -21,7 +22,123 @@
 
 
 
-# format data -------------------------------------------------------------
+
+# Major sources of variation in dataset -----------------------------------
+
+      # Mean-variance relationship
+      mean_counts <-  df_rawcounts_filtered[3:30] %>% rowMeans() 
+      var_counts <- df_rawcounts_filtered[3:30] %>% as.matrix() %>% rowVars() 
+      
+      df_mean_var <- data.frame(mean_counts, var_counts)
+      
+      ggplot(df_mean_var) +
+         
+         geom_point(aes(mean_counts, var_counts)) +
+         scale_y_log10() +
+         scale_x_log10() +
+         xlab("Mean counts per gene") +
+         ylab("Variance per gene") # we see an increase in variance associated with increase in mean counts
+
+      # Variance stabilizing transformation to visualize counts
+      m_rawcounts_filtered_trans <- df_rawcounts_filtered[3:30] %>% as.matrix()
+      rownames(m_rawcounts_filtered_trans) <- df_rawcounts_filtered$ensgene
+      m_rawcounts_filtered_trans <- log(m_rawcounts_filtered_trans + 1) # natural log, add constant to deal with 0s
+      
+      # Relabel columns
+      df_metadata1 <- df_metadata %>% mutate(day = paste0("D",day))
+      
+      df_metadata2 <- df_metadata1 %>% mutate(dose_spl = paste0(dose, 
+                                                                sep = ifelse(dose == "low",
+                                                                             "__",
+                                                                             "_"), 
+                                                                case_when(
+                                                                   
+                                                                   dog == 0 ~ "0",
+                                                                   dog == 1 ~ "1",
+                                                                   dog == 2 ~ "2", 
+                                                                   dog == 3 ~ "1",
+                                                                   dog == 4 ~ "2", 
+                                                                   dog == 5 ~ "3"
+                                                                   
+                                                                )))
+      
+      df_metadata3 <- df_metadata2 %>% mutate(label = paste0(dose_spl, sep = "_", day))
+                                                
+      colnames(m_rawcounts_filtered_trans) <- df_metadata3$label
+      
+      # Visualize transformed counts
+      
+            # Heatmap
+      
+                  # Correlate samples based on transformed counts
+                  m_cor_samples <- cor(m_rawcounts_filtered_trans)
+                  
+                  # Plot
+                  pheatmap(m_cor_samples)
+                  
+                  # Mean correlation of highly correlated samples
+                  
+                        # Day 0 + low day 1
+                        m_cor_samples %>% data.frame() %>% rownames_to_column("label") %>% as_tibble() %>% 
+                           pivot_longer(2:29, names_to = "label1", values_to = "corr") %>% 
+                           filter(label != label1) %>% 
+                           
+                           # first filter
+                           left_join(df_metadata3, by = "label") %>% 
+                           filter(day == "D0" | dose_day == "low_1") %>% 
+                           
+                           # second filter
+                           dplyr::select(1:3) %>% 
+                           dplyr::rename("label2" = "label", "label" = "label1") %>% 
+                           left_join(df_metadata3, by = "label") %>% 
+                           filter(day == "D0" | dose_day == "low_1") %>% 
+                           
+                           # take mean
+                           summarise(mean(corr))
+                           
+                        # High day 1 + low day 3
+                        m_cor_samples %>% data.frame() %>% rownames_to_column("label") %>% as_tibble() %>% 
+                           pivot_longer(2:29, names_to = "label1", values_to = "corr") %>% 
+                           filter(label != label1) %>% 
+                           
+                           # first filter
+                           left_join(df_metadata3, by = "label") %>% 
+                           filter(dose_day == "high_1" | dose_day == "low_3") %>% 
+                           
+                           # second filter
+                           dplyr::select(1:3) %>% 
+                           dplyr::rename("label2" = "label", "label" = "label1") %>% 
+                           left_join(df_metadata3, by = "label") %>% 
+                           filter(dose_day == "high_1" | dose_day == "low_3") %>% 
+                           
+                           # take mean
+                           summarise(mean(corr))
+
+            # PCA
+                  
+                  # Calculate PCA data
+                  l_pca_data <- prcomp(m_rawcounts_filtered_trans)
+                  df_pca_data <- l_pca_data$rotation %>% data.frame() %>% rownames_to_column("label") %>% as_tibble()
+                  df_pca_meta_data <- df_metadata3 %>% left_join(df_pca_data, by = "label")
+                  
+                  round(summary(l_pca_data)$importance[2,1]*100, 2)
+               
+                  # plot
+                  df_pca_meta_data %>% ggplot(aes(x = PC1, y = PC2)) +
+                     
+                     geom_point(aes(color = dose), size = 3) +
+                     geom_text_repel(aes(label = substr(day, start = 2, stop = 2)), color = "black") +
+                     
+                     labs(color = "inoculum") +
+                     
+                     xlab(paste0("PC1: ", round(summary(l_pca_data)$importance[2,1]*100, 2), "% of variance")) +
+                     ylab(paste0("PC2: ", round(summary(l_pca_data)$importance[2,2]*100, 2), "% of variance")) +
+                     
+                     theme_bw()
+                     
+
+            
+# format data for edgeR -------------------------------------------------------------
 
 
       #convert to matrix
@@ -49,7 +166,7 @@
 
       l_dge_h <- DGEList(counts = m_rawcounts_h, group = group_h)
 
-      # Already filtered out lowly expressed genes, don't need to use their function
+      # Already filtered out lowly expressed genes, don't need to use edgeR function
       
       # Create design matrix
       m_design_l <- model.matrix(~group_l)
@@ -112,7 +229,7 @@
          names(l_pairwise_degs_h) <- names(l_pairwise_h)
          
 
-
+         
 # Find DEGs on all days ---------------------------------------------------
          
          # low

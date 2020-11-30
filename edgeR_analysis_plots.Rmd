@@ -5,7 +5,7 @@ output: pdf_document
 
 ```{r setup, include=FALSE}
 
-      knitr::opts_chunk$set(echo = FALSE, messages = FALSE, warnings = FALSE)
+      knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
 
       library(purrr)
       library(tidyverse)
@@ -21,11 +21,16 @@ output: pdf_document
       library(reactome.db)
       library(kableExtra)
       library(RColorBrewer)
+      library(matrixStats)
+      library(cowplot)
+      library(ggpubr)
+      library(pheatmap)
 
       load("objects/analysis_data.Rdata")
       load("objects/degs.Rdata")
       load("objects/cluster_plots.Rdata")
       load("objects/pathways.Rdata")
+      load("objects/clinicalfigures.Rdata")
 
 
       source("functions/volcano_plot.R")
@@ -33,7 +38,591 @@ output: pdf_document
 
 ```
 
-# Pairwise day-by-day comparisons
+### Figure 1: Clinical parameters
+
+```{r format_data_function}
+
+      format_clin_data <- function(df){
+         
+         df1 <- df %>% 
+            pivot_longer(cols = 3:ncol(.), names_to = "day", values_to = "value" ) 
+         
+         
+         df1$day <- gsub("[^0-9.-]", "", df1$day) %>% as.factor()
+         df1$`Exp group`[is.na(df1$`Exp group`)] <- 0
+         df2 <- df1 %>% mutate(inoculum = ifelse(`Exp group` == 0, "low", "high"))
+         
+         df2
+         
+         
+      }   
+
+
+```
+
+```{r plot_data_function}
+
+plot_clin_data <- function(df) {
+      
+      
+      df %>% ggplot(aes(x = day, y = value, color = inoculum)) +
+            geom_point(size = 4, alpha = 0.7) +
+            stat_summary(aes(group = `Exp group`), fun = mean, geom = "line", size = 2) +
+            xlim(c("-1","0", "1", "2", "3", "4", "5", "6", "7", "8")) +
+            xlab("") +
+            ylab("") +
+            theme_classic() +
+            theme(plot.title = element_text(hjust = 0.5, size = 30),
+                  legend.position = "none",
+                  axis.text.x = element_blank(),
+                  axis.text.y = element_text(size = 25),
+                  )
+      
+}
+
+
+```
+
+```{r vital_signs}
+
+        # Temp
+      
+            p_temp <- df_temp %>% format_clin_data() %>% plot_clin_data() + ggtitle(expression("Temperature (" * degree * C * ")"))
+      
+        # Heart rate
+      
+            p_hr <- df_pulse %>% format_clin_data() %>% plot_clin_data() + ggtitle("Heart rate (BPM)") 
+      
+        # Blood pressure (systolic/diastolic)
+            
+            df_sys_bp1 <- df_sys_bp %>% format_clin_data() %>% mutate(type = "sys")
+            df_dias_bp1 <- df_dias_bp %>% format_clin_data() %>% mutate(type = "dias")
+            
+            df_bp <- rbind(df_sys_bp1, df_dias_bp1)
+            df_bp1 <- df_bp %>% 
+                  mutate(group = paste0(inoculum, sep = "_", type))
+            
+            p_bp <- df_bp1 %>% ggplot(aes(x = day, y = value, color = inoculum)) +
+                  geom_point(size = 4, alpha = 0.7) +
+                  stat_summary(aes(group = group), fun = mean, geom = "line", size = 2) +
+
+                  xlim(c("-1","2", "3", "4", "5", "6", "7", "8")) +
+                  xlab("") +
+                  ylab("") +
+                  ggtitle("Blood pressure (sys/dias)") +
+                  theme_classic() +
+                  theme(plot.title = element_text(hjust = 0.5, size = 30),
+                        legend.position = "none",
+                        axis.text.x = element_blank(),
+                        axis.text.y = element_text(size = 25),
+                  )
+            
+
+        # Respiratory rate
+            
+            p_resp_rate <- df_resp_rate %>% format_clin_data %>% plot_clin_data() + ggtitle("Respiratory rate (BPM)")
+      
+        # Oxygen saturation
+            
+            p_oxy_sat <- df_oxy_sat %>% format_clin_data() %>% plot_clin_data() + ggtitle(expression(O[2] * " Saturation (%)")) 
+      
+        # Habitus
+      
+            p_habitus <- df_habitus %>% format_clin_data() %>% plot_clin_data() + ggtitle("Habitus (1-4)") 
+            
+        # Appetite
+            
+            p_appetite <- df_appetite %>% format_clin_data() %>% plot_clin_data() + ggtitle("Appetite (1-4)")
+
+
+```
+
+```{r hematology}
+
+         # Parasitemia
+            
+            p_par <- df_par %>% format_clin_data() %>% plot_clin_data()  + ggtitle("Parasitemia (%)")
+
+         # Hemoglobin
+            
+            p_Hb <- df_Hb %>% format_clin_data() %>% plot_clin_data() + ggtitle("Hemoglobin (g/L)")
+      
+         # Reticulocyte
+            
+            colnames(df_retic) <- c("Dog number", "Exp group", "-1", "0", "1", "2", "3", "4", "5", "6", "7", "8")
+            df_retic2 <- df_retic %>% mutate(inoculum = substr(`Exp group`, start = 1, stop = nchar(`Exp group`) - 5))
+            
+            df_retic3 <- df_retic2 %>% pivot_longer(cols = 3:12, names_to = "day", values_to = "value" ) 
+            
+            p_retic <- df_retic3 %>% mutate(value = as.numeric(value)) %>% plot_clin_data() + ggtitle(expression(Reticulocytes ~ (10^9 /L)))
+      
+         # White blood cell
+            
+            p_white_cell <- df_white_cell %>% format_clin_data() %>% plot_clin_data() + ggtitle(expression(White ~ blood ~ cells ~ (10^9 /L)))
+      
+         # Band forms
+            
+            p_band_cell <- df_band_cell %>% format_clin_data() %>% plot_clin_data() + ggtitle(expression(Band ~ cells ~ (10^9 /L))) 
+      
+         # Platelets
+            
+            p_platelet <- df_platelet %>% format_clin_data() %>% plot_clin_data() + ggtitle(expression(Platelets ~ (10^9 /L)))
+            
+        # Neutrophil count
+            
+            p_neutrophil <- df_neutrophil %>% format_clin_data() %>% plot_clin_data() + ggtitle(expression(Neutrophils ~ (10^9 /L)))
+
+
+
+```
+
+```{r biochemistry}
+
+         # plasma hemoglobin
+            
+            p_cfHb <- df_cfHb %>% format_clin_data() %>% plot_clin_data() + ggtitle("Plasma hemoglobin (g/L)") 
+      
+         # serum urea
+
+            colnames(df_urea) <- c("Exp group", "-1", "0", "1", "2", "#", "3", "4", "5", "6", "7", "8")
+            df_urea1 <- df_urea %>% dplyr::select(-c("#"))
+            df_urea2 <- df_urea1 %>% mutate(inoculum = substr(`Exp group`, start = 1, stop = nchar(`Exp group`) - 5))
+            
+            df_urea3 <- df_urea2 %>% pivot_longer(cols = 2:9, names_to = "day", values_to = "value" ) 
+            
+            p_urea <- df_urea3 %>% mutate(value = as.numeric(value)) %>% plot_clin_data() + ggtitle("Serum urea (mmol/L)") 
+
+      
+         # serum creatinine
+            
+            p_creatinine <- df_creatinine %>% format_clin_data() %>% plot_clin_data() + ggtitle("Serum creatinine (µmol/L)")
+      
+         # blood HCO3
+            
+            df_hco3_1 <- df_hco3 %>% .[,1:10] %>% pivot_longer(cols = 3:ncol(.), names_to = "day", values_to = "value" )
+            
+            df_hco3_1$day <- gsub("HCO3", "", df_hco3_1$day)
+            df_hco3_1$day <- gsub("[^0-9.-]", "", df_hco3_1$day) %>% as.factor()
+            df_hco3_1$`Exp group`[is.na(df_hco3_1$`Exp group`)] <- 0
+            df_hco3_2 <- df_hco3_1 %>% mutate(inoculum = ifelse(`Exp group` == 0, "low", "high"))
+            
+            p_hco3 <- df_hco3_2 %>% plot_clin_data() + ggtitle(expression(HCO[3] ~ (mmol/L)))
+      
+         # blood gluose
+            
+            p_glucose <- df_glucose %>% format_clin_data() %>% plot_clin_data() + ggtitle("Blood glucose (mmol/L)")
+      
+         # ALT/AST
+            
+            p_alt <- df_alt %>% format_clin_data() %>% plot_clin_data() + ggtitle("ALT (U/L)") 
+            
+          # CRP
+            
+            p_crp <- df_crp %>% format_clin_data() %>% plot_clin_data() + ggtitle("C-reactive protein (mg/L)")
+
+
+
+```
+
+```{r acid_base_endocrine}
+
+         # pH
+            
+            p_pH <- df_pH %>% format_clin_data() %>% plot_clin_data() + ggtitle("pH")
+      
+         # pCO2
+            
+            df_pco2_1 <- df_pco2 %>% .[,1:10] %>% pivot_longer(cols = 3:ncol(.), names_to = "day", values_to = "value" )
+            
+            df_pco2_1$day <- gsub("CO2", "", df_pco2_1$day)
+            df_pco2_1$day <- gsub("[^0-9.-]", "", df_pco2_1$day) %>% as.factor()
+            df_pco2_1$`Exp group`[is.na(df_pco2_1$`Exp group`)] <- 0
+            df_pco2_2 <- df_pco2_1 %>% mutate(inoculum = ifelse(`Exp group` == 0, "low", "high"))
+            
+            p_pco2 <- df_pco2_2 %>% plot_clin_data() + ggtitle(expression(pCO[2] ~ (mmHg))) 
+      
+         # pO2
+            
+            df_po2_1 <- df_po2 %>% .[,1:10] %>% pivot_longer(cols = 3:ncol(.), names_to = "day", values_to = "value" )
+            
+            df_po2_1$day <- gsub("O2", "", df_po2_1$day)
+            df_po2_1$day <- gsub("[^0-9.-]", "", df_po2_1$day) %>% as.factor()
+            df_po2_1$`Exp group`[is.na(df_po2_1$`Exp group`)] <- 0
+            df_po2_2 <- df_po2_1 %>% mutate(inoculum = ifelse(`Exp group` == 0, "low", "high"))
+            
+            p_po2 <- df_po2_2 %>% plot_clin_data() + ggtitle(expression(pO[2] ~ (mmHg)))
+      
+         # lactate
+            
+            p_lactate <- df_lactate %>% format_clin_data() %>% plot_clin_data() + ggtitle("Lactate (mmol/L)") 
+      
+         # cortisol
+            
+            colnames(df_cortisol) <- c("Dog number", "Exp group", "-1", "0", "1", "2", "3", "4", "5", "6", "7", "8")
+            df_cortisol1 <- df_cortisol %>% mutate(inoculum = substr(`Exp group`, start = 1, stop = nchar(`Exp group`) - 5))
+            
+            df_cortisol2 <- df_cortisol1 %>% pivot_longer(cols = 3:12, names_to = "day", values_to = "value" ) 
+            
+            p_cortisol <- df_cortisol2 %>% mutate(value = as.numeric(value)) %>% plot_clin_data() + ggtitle("Cortisol (nmol/L)")
+
+         # T4
+            
+            colnames(df_t4) <- c("Dog number", "Exp group", "-1", "0", "1", "3", "4", "5", "6", "8")
+            df_t4_1 <- df_t4 %>% mutate(inoculum = substr(`Exp group`, start = 1, stop = nchar(`Exp group`) - 5))
+            
+            df_t4_2 <- df_t4_1 %>% pivot_longer(cols = 3:10, names_to = "day", values_to = "value" ) 
+            
+            p_t4 <- df_t4_2 %>% mutate(value = as.numeric(value)) %>% plot_clin_data() + ggtitle("Total T4 (nmol/L)") 
+
+
+
+```
+
+```{r legend, fig.height = 1, fig.align="right", out.width = "50%"}
+
+      p_filler <- df_temp %>%
+            format_clin_data() %>% 
+            ggplot(aes(x = day, y = value, color = inoculum)) +
+            geom_point(size = 4, alpha = 0.7) +
+            stat_summary(aes(group = `Exp group`), fun = mean, geom = "line", size = 2) +
+            theme_classic()
+
+
+      p_legend <- get_legend(p_filler)
+
+      as_ggplot(p_legend)
+
+```
+
+```{r titles}
+
+df_titles <- data.frame("Vital signs", "Hematology", "Acid/base and endocrine", "Biochemistry")
+
+kable(df_titles, "latex", booktabs = TRUE, col.names = NULL, align = rep("c", 4)) %>% 
+    column_spec(1:4, width = "3.85cm", border_left = TRUE, border_right = TRUE) %>% 
+   kable_styling(font_size = 9)
+
+
+```
+
+```{r row1, fig.show = "hold", out.width="25%"}
+
+      p_temp
+      
+      p_par
+      
+      p_pH
+      
+      p_cfHb
+        
+```
+
+```{r row2, fig.show = "hold", out.width="25%"}
+
+      p_hr
+
+      p_Hb
+      
+      p_hco3
+
+      p_urea
+      
+```
+
+```{r row3, fig.show = "hold", out.width="25%"}
+
+      p_bp
+
+      p_retic
+      
+      p_pco2
+      
+      p_creatinine
+
+```
+
+```{r row4, fig.show = "hold", out.width="25%"}
+
+      p_resp_rate
+
+      p_white_cell
+      
+      p_po2
+      
+      p_glucose
+
+```
+
+```{r row5, fig.show = "hold", out.width="25%"}
+
+      p_oxy_sat
+
+      p_neutrophil
+      
+      p_lactate
+      
+      p_alt
+
+```
+
+```{r row6, fig.show = "hold", out.width="25%"}
+
+      p_habitus 
+
+      p_band_cell
+      
+      p_cortisol
+      
+      p_crp + xlab("day") + theme(axis.title.x = element_text(size = 30), axis.text.x = element_text(size = 25)) 
+     
+        
+```
+
+```{r row7, fig.show = "hold", out.width="25%"}
+
+      p_appetite + xlab("day") + theme(axis.title.x = element_text(size = 30), axis.text.x = element_text(size = 25))
+
+      p_platelet + xlab("day") + theme(axis.title.x = element_text(size = 30), axis.text.x = element_text(size = 25))
+      
+      p_t4 + xlab("day") + theme(axis.title.x = element_text(size = 30), axis.text.x = element_text(size = 25))
+      
+```
+
+**Figure 1: Clinical data recorded throughout experimental time course in both the low and high inoculum cohorts.** Habitus was scored 1 -4 with 1 being complete collapse and 4 being a normal bright and alert dog. BPM: beats per minute. Plots rendered using the R package ggplot.
+
+### Figure 2: Cytokine concentrations
+
+```{r fig2_plots}
+
+      # GM-CSF
+
+            colnames(df_gm_csf) <- c("Dog number", "Exp group", "-1", "0", "1", "2", "3", "4", "5", "6", "7", "8")
+            
+            p_gm_csf <- df_gm_csf %>% format_clin_data() %>%  mutate(value = as.numeric(value)) %>% 
+              
+                ggplot(aes(x = day, y = value, color = inoculum)) +
+                  geom_point(size = 4, alpha = 0.7) +
+                  stat_summary(aes(group = `Exp group`), fun = mean, geom = "line", size = 2) +
+                  xlim(c("-1","0", "1", "2", "3", "4", "5", "6", "7", "8")) +
+                  xlab("") +
+                  ylab("") +
+                  theme_classic() +
+                  theme(plot.title = element_text(hjust = 0.5, size = 30),
+                        legend.position = "none",
+                        axis.text.x = element_blank(),
+                        axis.text.y = element_text(size = 25),
+                        ) +
+                  ggtitle("GM-CSF (pg/mL)")
+
+      # Keratinocyte chemotactic-like cytokine
+            
+            colnames(df_keratinocyte) <- c("Dog number", "Exp group", "-1", "0", "1", "2", "3", "4", "5", "6", "7", "8")
+            
+            p_keratinocyte <- df_keratinocyte %>% 
+                  format_clin_data() %>%  
+                  mutate(value = as.numeric(value)) %>% 
+                  plot_clin_data() + ggtitle("KC-like cytokine (pg/mL)") 
+
+
+      # IL-6 
+            
+            colnames(df_il6) <- c("Dog number", "Exp group", "-1", "0", "1", "2", "3", "4", "5", "6", "7", "8")
+            
+            p_il6 <- df_il6 %>% format_clin_data() %>%  mutate(value = as.numeric(value)) %>% 
+              
+              ggplot(aes(x = day, y = value, color = inoculum)) +
+                  geom_point(size = 4, alpha = 0.7) +
+                  stat_summary(aes(group = `Exp group`), fun = mean, geom = "line", size = 2) +
+                  xlim(c("-1","0", "1", "2", "3", "4", "5", "6", "7", "8")) +
+                  xlab("") +
+                  ylab("") +
+                  theme_classic() +
+                  theme(plot.title = element_text(hjust = 0.5, size = 30),
+                        legend.position = "none",
+                        axis.text.x = element_blank(),
+                        axis.text.y = element_text(size = 25),
+                  ) +
+                  ggtitle("IL-6 (pg/mL)") 
+            
+
+      # IL-8
+            
+            colnames(df_il8) <- c("Dog number", "Exp group", "-1", "0", "1", "2", "3", "4", "5", "6", "7", "8")
+            
+            p_il8 <- df_il8 %>% format_clin_data() %>%  mutate(value = as.numeric(value)) %>% 
+              
+              ggplot(aes(x = day, y = value, color = inoculum)) +
+                  geom_point(size = 4, alpha = 0.7) +
+                  stat_summary(aes(group = `Exp group`), fun = mean, geom = "line", size = 2) +
+                  xlim(c("-1","0", "1", "2", "3", "4", "5", "6", "7", "8")) +
+                  xlab("") +
+                  ylab("") +
+                  theme_classic() +
+                  theme(plot.title = element_text(hjust = 0.5, size = 30),
+                        legend.position = "none",
+                        axis.text.x = element_blank(),
+                        axis.text.y = element_text(size = 25),
+                  ) +
+                  ggtitle("IL-8 (pg/mL)")
+            
+      # IL-10 
+            
+            colnames(df_il10) <- c("Dog number", "Exp group", "-1", "0", "1", "2", "3", "4", "5", "6", "7", "8")
+            
+            p_il10 <- df_il10 %>% format_clin_data() %>%  mutate(value = as.numeric(value)) %>% 
+              
+              ggplot(aes(x = day, y = value, color = inoculum)) +
+                  geom_point(size = 4, alpha = 0.7) +
+                  stat_summary(aes(group = `Exp group`), fun = mean, geom = "line", size = 2) +
+                  xlim(c("-1","0", "1", "2", "3", "4", "5", "6", "7", "8")) +
+                  xlab("") +
+                  ylab("") +
+                  theme_classic() +
+                  theme(plot.title = element_text(hjust = 0.5, size = 30),
+                        legend.position = "none",
+                        axis.text.x = element_blank(),
+                        axis.text.y = element_text(size = 25),
+                  ) +
+                  ggtitle("IL-10 (pg/mL)") 
+            
+      # Macrophage chemotactic protein-1 
+            
+            colnames(df_macrophage) <- c("Dog number", "Exp group", "-1", "0", "1", "2", "3", "4", "4.1", "5", "6", "7", "8")
+            
+            p_macrophage <- df_macrophage %>% mutate("8" = as.character(df_macrophage$"8")) %>% 
+                  format_clin_data() %>%  
+                  mutate(value = as.numeric(value)) %>% 
+              
+                  ggplot(aes(x = day, y = value, color = inoculum)) +
+                      geom_point(size = 4, alpha = 0.7) +
+                      stat_summary(aes(group = `Exp group`), fun = mean, geom = "line", size = 2) +
+                      xlim(c("-1","0", "1", "2", "3", "4", "5", "6", "7", "8")) +
+                      xlab("") +
+                      ylab("") +
+                      theme_classic() +
+                      theme(plot.title = element_text(hjust = 0.5, size = 30),
+                            legend.position = "none",
+                            axis.text.x = element_blank(),
+                            axis.text.y = element_text(size = 25),
+                      ) +
+                      ggtitle("MCP-1 (pg/mL)") 
+            
+
+      # TNF-alpha
+            
+            colnames(df_tnfa) <- c("Dog number", "Exp group", "-1", "0", "1", "2", "3", "4", "5", "6", "7", "8")
+            
+            p_tnfa <- df_tnfa %>% format_clin_data() %>%  mutate(value = as.numeric(value)) %>% 
+              
+              ggplot(aes(x = day, y = value, color = inoculum)) +
+                  geom_point(size = 4, alpha = 0.7) +
+                  stat_summary(aes(group = `Exp group`), fun = mean, geom = "line", size = 2) +
+                  xlim(c("-1","0", "1", "2", "3", "4", "5", "6", "7", "8")) +
+                  xlab("") +
+                  ylab("") +
+                  theme_classic() +
+                  theme(plot.title = element_text(hjust = 0.5, size = 30),
+                        legend.position = "none",
+                        axis.text.x = element_blank(),
+                        axis.text.y = element_text(size = 25),
+                  ) +
+                  ggtitle(expression(paste(~TNF~alpha ~(pg/mL))))
+            
+
+ 
+
+```
+
+```{r fig2, fig.show = "hold", out.width="25%"}
+
+      p_gm_csf 
+
+      p_keratinocyte 
+      
+      p_il6 
+      
+      p_il8 + xlab("day") + theme(axis.title.x = element_text(size = 30), axis.text.x = element_text(size = 25))
+      
+      p_il10 + xlab("day") + theme(axis.title.x = element_text(size = 30), axis.text.x = element_text(size = 25))
+      
+      p_macrophage + xlab("day") + theme(axis.title.x = element_text(size = 30), axis.text.x = element_text(size = 25))
+      
+      p_tnfa + xlab("day") + theme(axis.title.x = element_text(size = 30), axis.text.x = element_text(size = 25))
+      
+        
+```
+
+**Figure 2: Plasma cytokine concentrations recorded throughout experimental time course in both the low and high inoculum cohorts.** 
+
+### Figure 3: Sources of variation among samples
+
+#### A: Pairwise correlation across samples
+```{r transform_counts}
+
+      # Variance stabilizing transformation to visualize counts
+      m_rawcounts_filtered_trans <- df_rawcounts_filtered[3:30] %>% as.matrix()
+      rownames(m_rawcounts_filtered_trans) <- df_rawcounts_filtered$ensgene
+      m_rawcounts_filtered_trans <- log(m_rawcounts_filtered_trans + 1) # natural log, add constant to deal with 0s
+      
+      # Relabel columns
+      df_metadata1 <- df_metadata %>% mutate(day = paste0("D",day))
+      
+      df_metadata2 <- df_metadata1 %>% mutate(dose_spl = paste0(dose, 
+                                                                sep = ifelse(dose == "low",
+                                                                             "__",
+                                                                             "_"), 
+                                                                case_when(
+                                                                   
+                                                                   dog == 0 ~ "0",
+                                                                   dog == 1 ~ "1",
+                                                                   dog == 2 ~ "2", 
+                                                                   dog == 3 ~ "1",
+                                                                   dog == 4 ~ "2", 
+                                                                   dog == 5 ~ "3"
+                                                                   
+                                                                )))
+      
+      df_metadata3 <- df_metadata2 %>% mutate(label = paste0(dose_spl, sep = "_", day))
+                                                
+      colnames(m_rawcounts_filtered_trans) <- df_metadata3$label
+
+```
+
+```{r fig3_heatmap, fig.height = 7, fig.width = 7.5}
+
+      # Correlate samples based on transformed counts
+      m_cor_samples <- cor(m_rawcounts_filtered_trans)
+      
+      # Plot
+      pheatmap(m_cor_samples)
+
+```
+
+#### B: Principal Components Analysis 
+```{r fig3_pca}
+
+      # Calculate PCA data
+      l_pca_data <- prcomp(m_rawcounts_filtered_trans)
+      df_pca_data <- l_pca_data$rotation %>% data.frame() %>% rownames_to_column("label") %>% as_tibble()
+      df_pca_meta_data <- df_metadata3 %>% left_join(df_pca_data, by = "label")
+      
+      # Plot
+      df_pca_meta_data %>% ggplot(aes(x = PC1, y = PC2)) +
+         
+         geom_point(aes(color = dose), size = 3) +
+         geom_text_repel(aes(label = substr(day, start = 2, stop = 2)), color = "black") +
+         
+         labs(color = "inoculum") +
+         
+         xlab(paste0("PC1: ", round(summary(l_pca_data)$importance[2,1]*100, 2), "% of variance")) +
+         ylab(paste0("PC2: ", round(summary(l_pca_data)$importance[2,2]*100, 2), "% of variance")) +
+         
+         theme_bw()
+
+
+```
+
+### Figure 4: Pairwise day-by-day comparisons
 
 ```{r inocula, out.width = "100%"}
 
@@ -105,7 +694,7 @@ output: pdf_document
 
       pathways_plot(l_gorpaths_l[4])
 
-      pathways_plot(l_gorpaths_h[4])
+      pathways_plot(l_gorpaths_h[4]) + ylim(1,105)
 
 ```
 
@@ -119,9 +708,9 @@ output: pdf_document
 
 ```{r paths_d8, fig.show = "hold", fig.height = 12, out.width = "50%"}
 
-      pathways_plot(l_gorpaths_l[5])
+      pathways_plot(l_gorpaths_l[5]) + ylim(1,105)
 
-      pathways_plot(l_gorpaths_h[5])
+      pathways_plot(l_gorpaths_h[5]) 
 
 ```
 
